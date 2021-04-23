@@ -1,0 +1,259 @@
+---
+title: "Generate Protein and RNA outputs for pathway analysis"
+author: Alec Trub
+output: html_notebook
+---
+
+#This is the initial code to run. It takes each list from omics and sorts them into seperate objects based on their treatment and directional change. Output limited by p value.
+
+##Includes code to be used with other omics experiments that are unpublished
+```{r}
+library(tidyverse)
+library(here)
+library(readxl)
+library(janitor)
+library(cowplot)
+library(viridis)
+library(ggrepel)
+library(enrichR)
+library(rmarkdown)
+library(knitr)
+library(pander)
+## install BiocManager if not installed
+# if (!requireNamespace("BiocManager", quietly = TRUE))
+#     install.packages("BiocManager")
+# ## install mixOmics
+# BiocManager::install('mixOmics')
+#devtools::install_github("hirscheylab/proteins")
+library(plotly)
+library(UpSetR)
+
+
+```
+
+#Protein
+
+#import and add gene names
+```{r}
+proteins_statin <- read_xlsx(here::here( "data", "LFQProt.xlsx")) %>% 
+  clean_names() %>% 
+  mutate(description = str_pad(description, width = 200, side = "right", pad = " "), #pad to make str_extract work
+         gn = str_extract(description,  "GN\\=[:graph:]+[:space:]")) %>% 
+  select(gn, everything())
+
+proteins_statin <- proteins_statin %>% 
+  separate(gn, into = c("gn", "gene_name"), sep = "=", ) %>% 
+  select(-gn)
+
+proteins_statin <- proteins_statin %>% 
+  mutate(diff = abundance_ratio_statin_control - abundance_ratio_hymeglusin_control) %>% 
+  select(gene_name, diff, everything()) %>% 
+  arrange(desc(diff))
+
+labels <- proteins_statin %>% 
+  filter(-log10(abundance_ratio_adj_p_value_statin_control) > 5, 
+         abundance_ratio_statin_control < 20) %>% 
+  subset() 
+
+str_count(proteins_statin$description) %>% 
+  hist()
+
+sum(is.na(proteins_statin$gene_name))
+```
+
+#Seperate into data frames
+```{r}
+#set pval
+pv = 0.05
+
+#sort
+statin_up <- proteins_statin %>% 
+  filter(abundance_ratio_adj_p_value_statin_control <pv & abundance_ratio_statin_control < 100 & abundance_ratio_statin_control >1) %>% 
+  pull(gene_name)
+
+statin_down <- proteins_statin %>% 
+  filter(abundance_ratio_adj_p_value_statin_control <pv & abundance_ratio_statin_control < 1) %>% 
+  pull(gene_name)
+
+
+hymeglusin_up <- proteins_statin %>% 
+  filter(abundance_ratio_adj_p_value_hymeglusin_control <pv & abundance_ratio_hymeglusin_control < 100 & abundance_ratio_hymeglusin_control >1) %>% 
+  pull(gene_name)
+
+hymeglusin_down <- proteins_statin %>% 
+  filter(abundance_ratio_adj_p_value_hymeglusin_control <pv & abundance_ratio_hymeglusin_control < 1) %>% 
+  pull(gene_name)
+
+
+metformin_up <- proteins_statin %>% 
+  filter(abundance_ratio_adj_p_value_metformin_control <pv & abundance_ratio_metformin_control < 100 & abundance_ratio_metformin_control >1) %>% 
+  pull(gene_name)
+
+metformin_down <- proteins_statin %>% 
+  filter(abundance_ratio_adj_p_value_metformin_control <pv & abundance_ratio_metformin_control < 1) %>% 
+  pull(gene_name)
+
+
+FASi_up <- proteins_statin %>% 
+  filter(abundance_ratio_adj_p_value_fa_si_control <pv & abundance_ratio_fa_si_control < 100 & abundance_ratio_fa_si_control >1) %>% 
+  pull(gene_name)
+
+FASi_down <- proteins_statin %>% 
+  filter(abundance_ratio_adj_p_value_fa_si_control <pv & abundance_ratio_fa_si_control < 1) %>% 
+  pull(gene_name)
+
+#Alternate sorting (based on prior sorting)
+statin_lfq = proteins_statin %>%
+  filter(abundance_ratio_hymeglusin_control < 100) %>%
+  filter(abundance_ratio_adj_p_value_hymeglusin_control > 0.3 | log(abundance_ratio_hymeglusin_control) / log(abundance_ratio_statin_control < 0 )) %>%
+  filter(abundance_ratio_adj_p_value_statin_control < 0.05)
+
+```
+
+
+#RNAseq compile
+
+#import
+```{r}
+c = c(2,4,7,8)
+
+df_statin <- read_excel("data/DifferentialExpression.xlsx", 
+    sheet = "Statin_vs_Control")
+df_statin = df_statin[c]
+colnames(df_statin) = c("GeneName","StatinFC","Statin_pval","Statin_adjp")
+
+df_hymeglusin <- read_excel("data/DifferentialExpression.xlsx", 
+    sheet = "Hymeglusin_vs_Control")
+df_hymeglusin = df_hymeglusin[c]
+colnames(df_hymeglusin) = c("GeneName","hymeglusinFC","hymeglusin_pval","hymeglusin_adjp")
+
+df_AICAR <- read_excel("data/DifferentialExpression.xlsx", 
+    sheet = "AICAR_vs_Control")
+df_AICAR = df_AICAR[c]
+colnames(df_AICAR) = c("GeneName","AICARFC","AICAR_pval","AICAR_adjp")
+
+df_C75 <- read_excel("data/DifferentialExpression.xlsx", 
+    sheet = "C75_vs_Control")
+df_C75 = df_C75[c]
+colnames(df_C75) = c("GeneName","C75FC","C75_pval","C75_adjp")
+
+```
+
+#create dfs
+```{r}
+
+statin_up_rna <-df_statin %>% 
+  filter(Statin_adjp <pv & StatinFC > 0) %>% 
+  pull(GeneName)
+
+statin_down_rna <-df_statin %>% 
+  filter(Statin_adjp <pv & StatinFC < 0) %>% 
+  pull(GeneName)
+
+
+hymeglusin_up_rna <-df_hymeglusin %>% 
+  filter(hymeglusin_adjp <pv & hymeglusinFC > 0) %>% 
+  pull(GeneName)
+
+hymeglusin_down_rna <-df_hymeglusin %>% 
+  filter(hymeglusin_adjp <pv & hymeglusinFC < 0) %>% 
+  pull(GeneName)
+
+
+AICAR_up_rna <-df_AICAR %>% 
+  filter(AICAR_adjp <pv & AICARFC > 0) %>% 
+  pull(GeneName)
+
+AICAR_down_rna <-df_AICAR %>% 
+  filter(AICAR_adjp <pv & AICARFC < 0) %>% 
+  pull(GeneName)
+
+
+C75_up_rna <-df_C75 %>% 
+  filter(C75_adjp <pv & C75FC > 0) %>% 
+  pull(GeneName)
+
+C75_down_rna <-df_C75 %>% 
+  filter(C75_adjp <pv & C75FC < 0) %>% 
+  pull(GeneName)
+
+```
+
+
+
+#PhosphoTMTProtein
+
+#import
+```{r}
+#import 24 hour protein changes from TMT experiment
+df_statin <- read_xlsx(here::here( "data", "tmtproteins.xlsx"), skip = 2, col_names = F) %>% 
+  clean_names()%>% 
+  select(2,21:26)
+
+
+colnames(df_statin) = c("gene_name","StatinFC","Statinpv","Statinapv","HymeFC","Hymepv","Hymeapv")
+
+
+```
+
+
+
+
+
+
+
+
+#get genes
+```{r}
+
+statin_up_tmt <- df_statin %>% 
+  filter(Statinpv <pv & StatinFC>0) %>% 
+  pull(gene_name)
+
+statin_down_tmt <- df_statin %>% 
+  filter(Statinpv <pv & StatinFC<0) %>% 
+  pull(gene_name)
+
+hymeglusin_up_tmt <- df_statin %>% 
+  filter(Hymepv <pv & HymeFC>0) %>% 
+  pull(gene_name)
+
+hymeglusin_down_tmt <- df_statin %>% 
+  filter(Hymepv <pv & HymeFC<0) %>% 
+  pull(gene_name)
+
+
+```
+
+
+
+
+#Export
+
+```{r}
+write.table(statin_up, "export/prot_statin_up.csv", row.names = F, col.names = F)
+write.table(statin_down, "export/prot_statin_down.csv", row.names = F, col.names = F)
+write.table(hymeglusin_up, "export/prot_hymeglusin_up.csv", row.names = F, col.names = F)
+write.table(hymeglusin_down, "export/prot_hymeglusin_down.csv", row.names = F, col.names = F)
+write.table(metformin_up, "export/prot_metformin_up.csv", row.names = F, col.names = F)
+write.table(metformin_down, "export/prot_metformin_down.csv", row.names = F, col.names = F)
+write.table(FASi_up, "export/prot_FASi_up.csv", row.names = F, col.names = F)
+write.table(FASi_down, "export/prot_FASi_down.csv", row.names = F, col.names = F)
+
+
+write.table(statin_up_rna, "export/RNA_statin_up.csv", row.names = F, col.names = F)
+write.table(statin_down_rna, "export/RNA_statin_down.csv", row.names = F, col.names = F)
+write.table(hymeglusin_up_rna, "export/RNA_hymeglusin_up.csv", row.names = F, col.names = F)
+write.table(hymeglusin_down_rna, "export/RNA_hymeglusin_down.csv", row.names = F, col.names = F)
+write.table(AICAR_up_rna, "export/RNA_AICAR_up.csv", row.names = F, col.names = F)
+write.table(AICAR_down_rna, "export/RNA_AICAR_down.csv", row.names = F, col.names = F)
+write.table(C75_up_rna, "export/RNA_FASi_up.csv", row.names = F, col.names = F)
+write.table(C75_down_rna, "export/RNA_FASi_down.csv", row.names = F, col.names = F)
+
+
+write.table(statin_up_tmt, "export/tmt_statin_up.csv", row.names = F, col.names = F)
+write.table(statin_down_tmt, "export/tmt_statin_down.csv", row.names = F, col.names = F)
+write.table(hymeglusin_up_tmt, "export/tmt_hymeglusin_up.csv", row.names = F, col.names = F)
+write.table(hymeglusin_down_tmt, "export/tmt_hymeglusin_down.csv", row.names = F, col.names = F)
+```
+

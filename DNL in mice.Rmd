@@ -1,0 +1,65 @@
+---
+title: "De Novo Lipogenesis in statin Treated Mice"
+author: Alec Trub
+output: html_notebook
+---
+
+## Load libraries
+```{r}
+library(tidyverse) # for base packages
+library(readxl) # to read excel files; part of tidyverse, but not a core part, so need to load it separately
+library(janitor) # clean data
+library(viridis) # For awesome, accessible color palettes
+library(ggrepel) #for smart ggplot labels
+library(broom) #for stats
+library(cowplot)
+
+```
+
+##Load data set containing calculated values
+```{r}
+df <- read_excel("data/DNL20190215.xlsx",col_names = TRUE)%>%
+  remove_empty(c("rows", "cols"))
+
+#Add treament
+df[4] = c("Statin","Statin","Statin","Statin","Control","Control","Control","Control")
+colnames(df)[4] = "Treatment"
+```
+
+##Graph
+```{r}
+#Set Factors/cat/num
+df$Mouse = factor(df$Mouse)
+df$Treatment = factor(df$Treatment, levels = c("Control","Statin"))
+
+#Graph De novo lipogenesis per mouse
+ggplot(df)+
+  geom_col(aes(x = Mouse,y = `New Palmitate`, fill = Mouse))+
+  scale_fill_viridis(discrete = T)
+
+#Graph DNL by Tx
+DNLMouse = ggplot(df)+
+  geom_boxplot(aes(x = Treatment,y = `New Palmitate`, fill = Treatment))+
+  theme_cowplot()+
+  scale_fill_viridis(discrete = T)+
+  guides(guide_legend(reverse = T))+
+  labs(y = "% labeled palmitate")+
+  theme(axis.text = element_text(size = 15, face = "bold"),  axis.title = element_text(size = 15, face = "bold"),legend.position = "none")
+  
+#Graph total lipids
+totalMouse = ggplot(df)+
+  geom_boxplot(aes(x = Treatment,y = `Total Palmitate`, fill = Treatment))+
+  theme_cowplot()+
+  scale_fill_viridis(discrete = T)+
+  guides(guide_legend(reverse = T))+
+  labs(y = "Palmitate (relative values)")+
+  theme(axis.text = element_text(size = 15, face = "bold"), legend.position = "none", axis.title = element_text(size = 15, face = "bold"))
+  
+
+ggsave(plot = DNLMouse, "DNLMouse.tiff", width = 5, height = 5)
+ggsave(plot = totalMouse, "TotalMouse.tiff", width = 9, height = 7)
+  
+```
+
+
+

@@ -1,0 +1,127 @@
+---
+title: "CoA Panel - HepG2 Statin and Hymeglusin Treatments"
+author: Alec Trub
+output: html_notebook
+---
+
+## Load libraries
+```{r}
+library(tidyverse) # for base packages
+library(readxl) # to read excel files; part of tidyverse, but not a core part, so need to load it separately
+library(janitor) # clean data
+library(viridis) # For awesome, accessible color palettes
+library(ggrepel) #for smart ggplot labels
+library(broom) #for stats
+library(cowplot) #for cleaner export
+```
+
+##Load data set containing proteins and statistical information. Clean up extra rows
+```{r}
+df <- read_excel("data/20180322.xlsx",col_names = TRUE)%>%
+  remove_empty(c("rows", "cols"))
+df[1]=NULL
+
+#Reformat data
+dfgraph = df %>% gather(key = "Metabolite", value = "value",1:10)  
+```
+
+#log transform
+```{r}
+df_log <- df %>%
+  map_if(., is.numeric, log2) %>% 
+  as.tibble()
+df_log[ncol(df_log)]=NULL
+
+```
+
+#calculate mean, and then normalize each mean
+```{r}
+#make a 'flat' group a, vector to then operate the 'mean' funtion on
+df_log_mean_control <- df_log %>%
+  filter(Treatment == "Control") %>%
+  summarize_if(is.numeric, mean) %>% 
+  flatten_dbl()
+df_log_mean_control
+
+#mutate all values by divinding by mean of 'control', and then re-bind to group ID
+df_log_rel <- df_log %>%
+  select_if(is.numeric) %>%
+  map2(., df_log_mean_control, ~ .x - .y) %>%
+  bind_cols(select(df_log, Treatment), .)
+df_log_rel
+
+#calculate avg
+df_log_rel_mean <- df_log_rel %>% 
+  group_by(Treatment) %>% 
+  summarize_all(funs(mean))
+df_log_rel_mean
+
+#long data for plotting
+df_log_plot <- df_log_rel_mean %>% 
+  gather(key = "Metabolite", value = "FC", -Treatment)
+df_log_plot
+
+```
+
+
+##Graphs for figures
+```{r}
+#Treatment as Factor
+df_log_plot$Metabolite = fct_rev(factor(df_log_plot$Metabolite, levels = c("HMG CoA","Malonyl CoA","Acetyl CoA", "Aceto Acetyl CoA","Propionyl CoA","Butyryl CoA","Hydroxybutyryl CoA","Succinyl CoA","Glutaryl CoA","CoA")))
+#Graph FC
+df_log_plot = df_log_plot %>% 
+  mutate(hmg = str_detect(Metabolite,"HMG"))
+
+statinonlyFC = ggplot(filter(df_log_plot,Treatment == "Statin"))+
+  geom_col(aes(reorder(Metabolite,FC),FC,fill = hmg),show.legend = F, color = "black")+
+  scale_fill_manual(values = c("black","red"))+
+  coord_flip(ylim = c(-0.5,2))+
+  labs(title = "",y = "Log 2 Fold Change",x= "")+
+  theme_cowplot()+
+  theme(axis.text = element_text(size = 12, face = "bold"))
+
+ggsave("export/StatinOnlyLogFC.tiff", height = 5, width = 7)
+
+t = filter(df_log_plot, Treatment == "Statin")
+l = levels(fct_reorder(t$Metabolite,t$FC))
+df_log_plot$Metabolite = factor(df_log_plot$Metabolite, levels = l)
+#Graph FC
+cellFC = ggplot(filter(df_log_plot, Treatment != "Control"))+
+  geom_col(aes(fct_infreq(Metabolite),FC,fill = Treatment), position = "dodge", color = "black")+
+  scale_fill_manual(values = c("#35B779FF", "#31688EFF", "#FDE725FF"))+
+  coord_flip()+
+  labs(title = "",y = "Log 2 Fold Change",x = "")+
+  guides(fill = guide_legend(reverse = TRUE))+
+  theme_cowplot()+
+  theme(axis.text = element_text(size = 12, face = "bold"), legend.position = "bottom", legend.text = element_text(size = 12), legend.title = element_text(size = 12, face = "bold"))
+
+ggsave("export/CellLogFC.tiff", height = 4)
+```
+
+
+
+##Stats
+```{r}
+p_df <- dfgraph %>%
+  group_by(Metabolite) %>% 
+  nest() %>% #Nest all non-grouping columns into list-frames
+  mutate(t_test = map(data, ~tidy(aov(value ~ Treatment, data = .x)))) %>% 
+  unnest(t_test) %>%  
+  select(one_of(c("Metabolite", "p.value"))) %>% 
+  arrange(p.value) %>% 
+  drop_na()
+
+
+
+t_df <- dfgraph %>%
+  group_by(Metabolite) %>% 
+  nest() %>% 
+  mutate(t_test = map(data, ~tidy(TukeyHSD(aov(value ~ Treatment, data = .x))))) %>%
+  unnest(t_test) %>%  
+  select(one_of(c("Metabolite","contrast", "adj.p.value"))) %>% 
+  arrange(adj.p.value)
+
+write_csv(p_df,"export/StatinCellANOVA.csv")
+write_csv(t_df,"export/StatinCellHSD.csv")
+
+```

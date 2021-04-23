@@ -1,0 +1,615 @@
+---
+title: "Generate Upsetter Plot Using Enrichr dataframes"
+author: Alec Trub
+output: html_notebook
+---
+# Run "Lists", then "Enricher" first. This takes the master list from Enricher and creats an upsetter plot to compare overlapping and distinct pathways changes
+```{r}
+library(tidyverse)
+library(readxl)
+library(janitor)
+library(cowplot)
+library(viridis)
+library(ggrepel)
+library(enrichR)
+library(rmarkdown)
+library(knitr)
+library(pander)
+## install BiocManager if not installed
+# if (!requireNamespace("BiocManager", quietly = TRUE))
+#     install.packages("BiocManager")
+# ## install mixOmics
+# BiocManager::install('mixOmics')
+#devtools::install_github("hirscheylab/proteins")
+library(plotly)
+library(UpSetR)
+
+
+```
+
+#Create Master list/data frame
+```{r}
+df_upsetter = master_list %>% 
+  separate(col = 1, into = c("treatment","direction","omic"), sep = "_" ) %>% 
+  filter(Adjusted.P.value < 0.05)
+colnames(df_upsetter)[5] = "term"
+df_upsetter = df_upsetter %>%
+  separate(col = term, into = c("term", "GO"), sep = "\\(")
+
+```
+
+
+#Create Lists of pathways for each omic
+```{r}
+
+#LFQ-Only statin and hymeglusin conditions
+list_upsetter_LFQ = list(
+statin_up = as.list(pull(filter(df_upsetter, treatment == "statin" & direction == "up" & omic == "protein"),term)),
+statin_down = as.list(pull(filter(df_upsetter, treatment == "statin" & direction == "down" & omic == "protein"),term)),
+hymeglusin_up = as.list(pull(filter(df_upsetter, treatment == "hymeglusin" & direction == "up" & omic == "protein"),term)),
+hymeglusin_down = as.list(pull(filter(df_upsetter, treatment == "hymeglusin" & direction == "down" & omic == "protein"),term))
+)
+  
+#LFQ
+list_upsetter_LFQ_all = list(
+statin_up = as.list(pull(filter(df_upsetter, treatment == "statin" & direction == "up" & omic == "protein"),term)),
+statin_down = as.list(pull(filter(df_upsetter, treatment == "statin" & direction == "down" & omic == "protein"),term)),
+hymeglusin_up = as.list(pull(filter(df_upsetter, treatment == "hymeglusin" & direction == "up" & omic == "protein"),term)),
+hymeglusin_down = as.list(pull(filter(df_upsetter, treatment == "hymeglusin" & direction == "down" & omic == "protein"),term)),
+ampk_up = as.list(pull(filter(df_upsetter, treatment == "ampk" & direction == "up" & omic == "protein"),term)),
+ampk_down = as.list(pull(filter(df_upsetter, treatment == "ampk" & direction == "down" & omic == "protein"),term))#,
+#fasi_up = as.list(pull(filter(df_upsetter, treatment == "fasi" & direction == "up" & omic == "protein"),term)),
+#fasi_down = as.list(pull(filter(df_upsetter, treatment == "fasi" & direction == "down" & omic == "protein"),term))
+  )
+
+
+#RNA-statin and hyme only
+list_upsetter_rna = list(
+statin_up = as.list(pull(filter(df_upsetter, treatment == "statin" & direction == "up" & omic == "rna"),term)),
+statin_down = as.list(pull(filter(df_upsetter, treatment == "statin" & direction == "down" & omic == "rna"),term)),
+hymeglusin_up = as.list(pull(filter(df_upsetter, treatment == "hymeglusin" & direction == "up" & omic == "rna"),term)),
+hymeglusin_down = as.list(pull(filter(df_upsetter, treatment == "hymeglusin" & direction == "down" & omic == "rna"),term))
+)
+  
+#RNA
+list_upsetter_rna_all = list(
+statin_up = as.list(pull(filter(df_upsetter, treatment == "statin" & direction == "up" & omic == "rna"),term)),
+statin_down = as.list(pull(filter(df_upsetter, treatment == "statin" & direction == "down" & omic == "rna"),term)),
+hymeglusin_up = as.list(pull(filter(df_upsetter, treatment == "hymeglusin" & direction == "up" & omic == "rna"),term)),
+hymeglusin_down = as.list(pull(filter(df_upsetter, treatment == "hymeglusin" & direction == "down" & omic == "rna"),term)),
+ampk_up = as.list(pull(filter(df_upsetter, treatment == "ampk" & direction == "up" & omic == "rna"),term)),
+ampk_down = as.list(pull(filter(df_upsetter, treatment == "ampk" & direction == "down" & omic == "rna"),term))#,
+#fasi_up = as.list(pull(filter(df_upsetter, treatment == "fasi" & direction == "up" & omic == "rna"),term)),
+#fasi_down = as.list(pull(filter(df_upsetter, treatment == "fasi" & direction == "down" & omic == "rna"),term))
+)
+
+#TMTProt - no other conditions tested
+list_upsetter_tmt = list(
+statin_up = as.list(pull(filter(df_upsetter, treatment == "statin" & direction == "up" & omic == "tmt"),term)),
+statin_down = as.list(pull(filter(df_upsetter, treatment == "statin" & direction == "down" & omic == "tmt"),term)),
+hymeglusin_up = as.list(pull(filter(df_upsetter, treatment == "hymeglusin" & direction == "up" & omic == "tmt"),term)),
+hymeglusin_down = as.list(pull(filter(df_upsetter, treatment == "hymeglusin" & direction == "down" & omic == "tmt"),term))
+)
+```
+
+
+
+#UpSetR
+From: https://cran.r-project.org/web/packages/UpSetR/vignettes/basic.usage.html   
+```{r}
+##LFQ
+#Statin v Hyme
+#Rename sets for graphing
+names(list_upsetter_LFQ) = c("Statin Increase", "Statin Decrease", "Hymeglusin Increase", "Hymeglusin Decrease")
+names(list_upsetter_LFQ_all) = c("Statin Increase", "Statin Decrease", "Hymeglusin Increase", "Hymeglusin Decrease", "Metformin Increase", "Metformin Decrease")
+
+UpLFQ = upset(fromList(list_upsetter_LFQ),
+      order.by = "freq", 
+      nsets = 8, 
+      number.angles = 30, 
+      point.size = 3, 
+      line.size = 1, 
+      mainbar.y.label = "Pathways Intersections", 
+      sets.x.label = "Pathways Per Condition",
+      text.scale = c(1.5, 1.3, 1, 1, 1.5, 1.3)
+      
+)
+
+
+
+UpLFQall = upset(fromList(list_upsetter_LFQ_all),
+      order.by = "freq", 
+      nsets = 8, 
+      number.angles = 30, 
+      point.size = 3, 
+      line.size = 1, 
+      mainbar.y.label = "Pathway Intersections", 
+      sets.x.label = "Pathway Per Condition",
+      text.scale = c(1.5, 1.3, 1, 1, 1.5, 1.3)
+)
+
+
+##rna
+#Statin v Hyme
+upset(fromList(list_upsetter_rna),
+      order.by = "freq", 
+      nsets = 8, 
+      number.angles = 30, 
+      point.size = 3, 
+      line.size = 1, 
+      mainbar.y.label = "Pathways Intersections", 
+      sets.x.label = "Pathways Per Condition",
+      #text.scale = c(1.3, 1.3, 1, 1, 1, 0.75)
+)
+
+upset(fromList(list_upsetter_rna_all),
+      order.by = "freq", 
+      nsets = 8, 
+      number.angles = 30, 
+      point.size = 3, 
+      line.size = 1, 
+      mainbar.y.label = "Pathway Intersections", 
+      sets.x.label = "Pathway Per Condition",
+      #text.scale = c(1.3, 1.3, 1, 1, 1, 0.75)
+)
+
+##TMTProt
+#Statin v Hyme
+upset(fromList(list_upsetter_tmt),
+      order.by = "freq", 
+      nsets = 8, 
+      number.angles = 30, 
+      point.size = 3, 
+      line.size = 1, 
+      mainbar.y.label = "Pathways Intersections", 
+      sets.x.label = "Pathways Per Condition",
+      #text.scale = c(1.3, 1.3, 1, 1, 1, 0.75)
+)
+
+#reset names to prevent breaking code below
+names(list_upsetter_LFQ) =c("statin_up", "statin_down", "hymeglusin_up", "hymeglusin_down")
+names(list_upsetter_LFQ_all) = c("statin_up", "statin_down", "hymeglusin_up", "hymeglusin_down", "ampk_up", "ampk_down")
+
+
+#Export Code
+# svg("export/UpSetter LFQ AMPK.svg")
+# UpLFQall
+# dev.off()
+
+```
+
+#statin v hyme only breakout lists
+```{r}
+
+##Statin v Hyme only
+#breakout statin up hyme down
+suhd_LFQ_E <- df_upsetter %>% 
+  filter(term %in% list_upsetter_LFQ[["statin_up"]], 
+         term %in% list_upsetter_LFQ[["hymeglusin_down"]],
+         !term %in% list_upsetter_LFQ[["statin_down"]],
+         !term %in% list_upsetter_LFQ[["hymeglusin_up"]]) %>% 
+  drop_na(term) %>% 
+  pull(term) %>% 
+  unique()
+
+su_LFQ_E <- df_upsetter %>% 
+  filter(term %in% list_upsetter_LFQ[["statin_up"]], 
+         !term %in% list_upsetter_LFQ[["hymeglusin_down"]],
+         !term %in% list_upsetter_LFQ[["statin_down"]],
+         !term %in% list_upsetter_LFQ[["hymeglusin_up"]]) %>% 
+  drop_na(term) %>% 
+  pull(term) %>% 
+  unique()
+hd_LFQ_E <- df_upsetter %>% 
+  filter(!term %in% list_upsetter_LFQ[["statin_up"]], 
+         term %in% list_upsetter_LFQ[["hymeglusin_down"]],
+         !term %in% list_upsetter_LFQ[["statin_down"]],
+         !term %in% list_upsetter_LFQ[["hymeglusin_up"]]) %>% 
+  drop_na(term) %>% 
+  pull(term) %>% 
+  unique()
+
+#breakout statin down hyme up
+sdhu_LFQ_E <- df_upsetter %>% 
+  filter(!term %in% list_upsetter_LFQ[["statin_up"]], 
+         !term %in% list_upsetter_LFQ[["hymeglusin_down"]],
+         term %in% list_upsetter_LFQ[["statin_down"]],
+         term %in% list_upsetter_LFQ[["hymeglusin_up"]]) %>% 
+  drop_na(term) %>% 
+  pull(term) %>% 
+  unique()
+
+sd_LFQ_E <- df_upsetter %>% 
+  filter(!term %in% list_upsetter_LFQ[["statin_up"]], 
+         !term %in% list_upsetter_LFQ[["hymeglusin_down"]],
+         term %in% list_upsetter_LFQ[["statin_down"]],
+         !term %in% list_upsetter_LFQ[["hymeglusin_up"]]) %>% 
+  drop_na(term) %>% 
+  pull(term) %>% 
+  unique()
+
+hu_LFQ_E <- df_upsetter %>% 
+  filter(!term %in% list_upsetter_LFQ[["statin_up"]], 
+         !term %in% list_upsetter_LFQ[["hymeglusin_down"]],
+         !term %in% list_upsetter_LFQ[["statin_down"]],
+         term %in% list_upsetter_LFQ[["hymeglusin_up"]]) %>% 
+  drop_na(term) %>% 
+  pull(term) %>% 
+  unique()
+
+sdhd_LFQ_E <- df_upsetter %>% 
+  filter(!term %in% list_upsetter_LFQ[["statin_up"]], 
+         term %in% list_upsetter_LFQ[["hymeglusin_down"]],
+         term %in% list_upsetter_LFQ[["statin_down"]],
+         !term %in% list_upsetter_LFQ[["hymeglusin_up"]]) %>% 
+  drop_na(term) %>% 
+  pull(term) %>% 
+  unique()
+
+suhu_LFQ_E <- df_upsetter %>% 
+  filter(term %in% list_upsetter_LFQ[["statin_up"]], 
+         !term %in% list_upsetter_LFQ[["hymeglusin_down"]],
+         !term %in% list_upsetter_LFQ[["statin_down"]],
+         term %in% list_upsetter_LFQ[["hymeglusin_up"]]) %>% 
+  drop_na(term) %>% 
+  pull(term) %>% 
+  unique()
+
+LFQ_list = list(suhd_LFQ_E = suhd_LFQ_E, su_LFQ_E = su_LFQ_E, hd_LFQ_E = hd_LFQ_E, sdhu_LFQ_E = sdhu_LFQ_E, sd_LFQ_E = sd_LFQ_E, sdhd_LFQ_E = sdhd_LFQ_E, suhu_LFQ_E = suhu_LFQ_E, hu_LFQ_E = hu_LFQ_E)
+```
+
+#statin v hyme with AMPK breakout lists
+```{r}
+
+##Statin v Hyme only
+#breakout statin up hyme down
+suhd_LFQ_AMPK <- df_upsetter %>% 
+  filter(term %in% list_upsetter_LFQ_all[["statin_up"]], 
+         term %in% list_upsetter_LFQ_all[["hymeglusin_down"]],
+         !term %in% list_upsetter_LFQ_all[["statin_down"]],
+         !term %in% list_upsetter_LFQ_all[["hymeglusin_up"]],
+         term %in% list_upsetter_LFQ_all[["ampk_up"]],
+         !term %in% list_upsetter_LFQ_all[["ampk_down"]]) %>% 
+  drop_na(term) %>% 
+  pull(term) %>% 
+  unique()
+
+su_LFQ_AMPK <- df_upsetter %>% 
+  filter(term %in% list_upsetter_LFQ_all[["statin_up"]], 
+         !term %in% list_upsetter_LFQ_all[["hymeglusin_down"]],
+         !term %in% list_upsetter_LFQ_all[["statin_down"]],
+         !term %in% list_upsetter_LFQ_all[["hymeglusin_up"]],
+         term %in% list_upsetter_LFQ_all[["ampk_up"]],
+         !term %in% list_upsetter_LFQ_all[["ampk_down"]]) %>% 
+  drop_na(term) %>% 
+  pull(term) %>% 
+  unique()
+hd_LFQ_AMPK <- df_upsetter %>% 
+  filter(!term %in% list_upsetter_LFQ[["statin_up"]], 
+         term %in% list_upsetter_LFQ[["hymeglusin_down"]],
+         !term %in% list_upsetter_LFQ[["statin_down"]],
+         !term %in% list_upsetter_LFQ[["hymeglusin_up"]],
+         !term %in% list_upsetter_LFQ_all[["ampk_up"]],
+         !term %in% list_upsetter_LFQ_all[["ampk_down"]]) %>% 
+  drop_na(term) %>% 
+  pull(term) %>% 
+  unique()
+
+#breakout statin down hyme up
+sdhu_LFQ_AMPK <- df_upsetter %>% 
+  filter(!term %in% list_upsetter_LFQ_all[["statin_up"]], 
+         !term %in% list_upsetter_LFQ_all[["hymeglusin_down"]],
+         term %in% list_upsetter_LFQ_all[["statin_down"]],
+         term %in% list_upsetter_LFQ_all[["hymeglusin_up"]],
+         !term %in% list_upsetter_LFQ_all[["ampk_up"]],
+         term %in% list_upsetter_LFQ_all[["ampk_down"]]) %>% 
+  drop_na(term) %>% 
+  pull(term) %>% 
+  unique()
+
+sd_LFQ_AMPK <- df_upsetter %>% 
+  filter(!term %in% list_upsetter_LFQ_all[["statin_up"]], 
+         !term %in% list_upsetter_LFQ_all[["hymeglusin_down"]],
+         term %in% list_upsetter_LFQ_all[["statin_down"]],
+         !term %in% list_upsetter_LFQ_all[["hymeglusin_up"]],
+         !term %in% list_upsetter_LFQ_all[["ampk_up"]],
+         term %in% list_upsetter_LFQ_all[["ampk_down"]]) %>% 
+  drop_na(term) %>% 
+  pull(term) %>% 
+  unique()
+
+hu_LFQ_AMPK <- df_upsetter %>% 
+  filter(!term %in% list_upsetter_LFQ_all[["statin_up"]], 
+         !term %in% list_upsetter_LFQ_all[["hymeglusin_down"]],
+         !term %in% list_upsetter_LFQ_all[["statin_down"]],
+         term %in% list_upsetter_LFQ_all[["hymeglusin_up"]],
+         !term %in% list_upsetter_LFQ_all[["ampk_up"]],
+         !term %in% list_upsetter_LFQ_all[["ampk_down"]]) %>% 
+  drop_na(term) %>% 
+  pull(term) %>% 
+  unique()
+
+sdhd_LFQ_AMPK <- df_upsetter %>% 
+  filter(!term %in% list_upsetter_LFQ_all[["statin_up"]], 
+         term %in% list_upsetter_LFQ_all[["hymeglusin_down"]],
+         term %in% list_upsetter_LFQ_all[["statin_down"]],
+         !term %in% list_upsetter_LFQ_all[["hymeglusin_up"]],
+         !term %in% list_upsetter_LFQ_all[["ampk_up"]],
+         term %in% list_upsetter_LFQ_all[["ampk_down"]]) %>% 
+  drop_na(term) %>% 
+  pull(term) %>% 
+  unique()
+
+suhu_LFQ_AMPK <- df_upsetter %>% 
+  filter(term %in% list_upsetter_LFQ_all[["statin_up"]], 
+         !term %in% list_upsetter_LFQ_all[["hymeglusin_down"]],
+         !term %in% list_upsetter_LFQ_all[["statin_down"]],
+         term %in% list_upsetter_LFQ_all[["hymeglusin_up"]],
+         term %in% list_upsetter_LFQ_all[["ampk_up"]],
+         !term %in% list_upsetter_LFQ_all[["ampk_down"]]) %>% 
+  drop_na(term) %>% 
+  pull(term) %>% 
+  unique()
+
+LFQ_AMPK_list = list(suhd_LFQ_AMPK = suhd_LFQ_AMPK, su_LFQ_AMPK = su_LFQ_AMPK, hd_LFQ_AMPK = hd_LFQ_AMPK, sdhu_LFQ_AMPK = sdhu_LFQ_AMPK, sd_LFQ_AMPK = sd_LFQ_AMPK, sdhd_LFQ_AMPK = sdhd_LFQ_AMPK, suhu_LFQ_AMPK = suhu_LFQ_AMPK, hu_LFQ_AMPK = hu_LFQ_AMPK)
+```
+
+#RNA
+```{r}
+
+##Statin v Hyme only
+#breakout statin up hyme down
+suhd_rna_E <- df_upsetter %>% 
+  filter(term %in% list_upsetter_rna[["statin_up"]], 
+         term %in% list_upsetter_rna[["hymeglusin_down"]],
+         !term %in% list_upsetter_rna[["statin_down"]],
+         !term %in% list_upsetter_rna[["hymeglusin_up"]]) %>% 
+  drop_na(term) %>% 
+  pull(term) %>% 
+  unique()
+
+su_rna_E <- df_upsetter %>% 
+  filter(term %in% list_upsetter_rna[["statin_up"]], 
+         !term %in% list_upsetter_rna[["hymeglusin_down"]],
+         !term %in% list_upsetter_rna[["statin_down"]],
+         !term %in% list_upsetter_rna[["hymeglusin_up"]]) %>% 
+  drop_na(term) %>% 
+  pull(term) %>% 
+  unique()
+hd_rna_E <- df_upsetter %>% 
+  filter(!term %in% list_upsetter_rna[["statin_up"]], 
+         term %in% list_upsetter_rna[["hymeglusin_down"]],
+         !term %in% list_upsetter_rna[["statin_down"]],
+         !term %in% list_upsetter_rna[["hymeglusin_up"]]) %>% 
+  drop_na(term) %>% 
+  pull(term) %>% 
+  unique()
+
+#breakout statin down hyme up
+sdhu_rna_E <- df_upsetter %>% 
+  filter(!term %in% list_upsetter_rna[["statin_up"]], 
+         !term %in% list_upsetter_rna[["hymeglusin_down"]],
+         term %in% list_upsetter_rna[["statin_down"]],
+         term %in% list_upsetter_rna[["hymeglusin_up"]]) %>% 
+  drop_na(term) %>% 
+  pull(term) %>% 
+  unique()
+
+sd_rna_E <- df_upsetter %>% 
+  filter(!term %in% list_upsetter_rna[["statin_up"]], 
+         !term %in% list_upsetter_rna[["hymeglusin_down"]],
+         term %in% list_upsetter_rna[["statin_down"]],
+         !term %in% list_upsetter_rna[["hymeglusin_up"]]) %>% 
+  drop_na(term) %>% 
+  pull(term) %>% 
+  unique()
+
+hu_rna_E <- df_upsetter %>% 
+  filter(!term %in% list_upsetter_rna[["statin_up"]], 
+         !term %in% list_upsetter_rna[["hymeglusin_down"]],
+         !term %in% list_upsetter_rna[["statin_down"]],
+         term %in% list_upsetter_rna[["hymeglusin_up"]]) %>% 
+  drop_na(term) %>% 
+  pull(term) %>% 
+  unique()
+
+sdhd_rna_E <- df_upsetter %>% 
+  filter(!term %in% list_upsetter_rna[["statin_up"]], 
+         term %in% list_upsetter_rna[["hymeglusin_down"]],
+         term %in% list_upsetter_rna[["statin_down"]],
+         !term %in% list_upsetter_rna[["hymeglusin_up"]]) %>% 
+  drop_na(term) %>% 
+  pull(term) %>% 
+  unique()
+
+suhu_rna_E <- df_upsetter %>% 
+  filter(term %in% list_upsetter_rna[["statin_up"]], 
+         !term %in% list_upsetter_rna[["hymeglusin_down"]],
+         !term %in% list_upsetter_rna[["statin_down"]],
+         term %in% list_upsetter_rna[["hymeglusin_up"]]) %>% 
+  drop_na(term) %>% 
+  pull(term) %>% 
+  unique()
+
+rna_list = list(suhd_rna_E = suhd_rna_E, su_rna_E = su_rna_E, hd_rna_E = hd_rna_E, sdhu_rna_E = sdhu_rna_E, sd_rna_E = sd_rna_E, sdhd_rna_E = sdhd_rna_E, suhu_rna_E = suhu_rna_E, hu_rna_E = hu_rna_E)
+```
+
+#statin v hyme with AMPK breakout lists
+```{r}
+
+##Statin v Hyme only
+#breakout statin up hyme down
+suhd_rna_AMPK <- df_upsetter %>% 
+  filter(term %in% list_upsetter_rna_all[["statin_up"]], 
+         term %in% list_upsetter_rna_all[["hymeglusin_down"]],
+         !term %in% list_upsetter_rna_all[["statin_down"]],
+         !term %in% list_upsetter_rna_all[["hymeglusin_up"]],
+         term %in% list_upsetter_rna_all[["ampk_up"]],
+         !term %in% list_upsetter_rna_all[["ampk_down"]]) %>% 
+  drop_na(term) %>% 
+  pull(term) %>% 
+  unique()
+
+su_rna_AMPK <- df_upsetter %>% 
+  filter(term %in% list_upsetter_rna_all[["statin_up"]], 
+         !term %in% list_upsetter_rna_all[["hymeglusin_down"]],
+         !term %in% list_upsetter_rna_all[["statin_down"]],
+         !term %in% list_upsetter_rna_all[["hymeglusin_up"]],
+         term %in% list_upsetter_rna_all[["ampk_up"]],
+         !term %in% list_upsetter_rna_all[["ampk_down"]]) %>% 
+  drop_na(term) %>% 
+  pull(term) %>% 
+  unique()
+hd_rna_AMPK <- df_upsetter %>% 
+  filter(!term %in% list_upsetter_rna[["statin_up"]], 
+         term %in% list_upsetter_rna[["hymeglusin_down"]],
+         !term %in% list_upsetter_rna[["statin_down"]],
+         !term %in% list_upsetter_rna[["hymeglusin_up"]],
+         !term %in% list_upsetter_rna_all[["ampk_up"]],
+         !term %in% list_upsetter_rna_all[["ampk_down"]]) %>% 
+  drop_na(term) %>% 
+  pull(term) %>% 
+  unique()
+
+#breakout statin down hyme up
+sdhu_rna_AMPK <- df_upsetter %>% 
+  filter(!term %in% list_upsetter_rna_all[["statin_up"]], 
+         !term %in% list_upsetter_rna_all[["hymeglusin_down"]],
+         term %in% list_upsetter_rna_all[["statin_down"]],
+         term %in% list_upsetter_rna_all[["hymeglusin_up"]],
+         !term %in% list_upsetter_rna_all[["ampk_up"]],
+         term %in% list_upsetter_rna_all[["ampk_down"]]) %>% 
+  drop_na(term) %>% 
+  pull(term) %>% 
+  unique()
+
+sd_rna_AMPK <- df_upsetter %>% 
+  filter(!term %in% list_upsetter_rna_all[["statin_up"]], 
+         !term %in% list_upsetter_rna_all[["hymeglusin_down"]],
+         term %in% list_upsetter_rna_all[["statin_down"]],
+         !term %in% list_upsetter_rna_all[["hymeglusin_up"]],
+         !term %in% list_upsetter_rna_all[["ampk_up"]],
+         term %in% list_upsetter_rna_all[["ampk_down"]]) %>% 
+  drop_na(term) %>% 
+  pull(term) %>% 
+  unique()
+
+hu_rna_AMPK <- df_upsetter %>% 
+  filter(!term %in% list_upsetter_rna_all[["statin_up"]], 
+         !term %in% list_upsetter_rna_all[["hymeglusin_down"]],
+         !term %in% list_upsetter_rna_all[["statin_down"]],
+         term %in% list_upsetter_rna_all[["hymeglusin_up"]],
+         !term %in% list_upsetter_rna_all[["ampk_up"]],
+         !term %in% list_upsetter_rna_all[["ampk_down"]]) %>% 
+  drop_na(term) %>% 
+  pull(term) %>% 
+  unique()
+
+sdhd_rna_AMPK <- df_upsetter %>% 
+  filter(!term %in% list_upsetter_rna_all[["statin_up"]], 
+         term %in% list_upsetter_rna_all[["hymeglusin_down"]],
+         term %in% list_upsetter_rna_all[["statin_down"]],
+         !term %in% list_upsetter_rna_all[["hymeglusin_up"]],
+         !term %in% list_upsetter_rna_all[["ampk_up"]],
+         term %in% list_upsetter_rna_all[["ampk_down"]]) %>% 
+  drop_na(term) %>% 
+  pull(term) %>% 
+  unique()
+
+suhu_rna_AMPK <- df_upsetter %>% 
+  filter(term %in% list_upsetter_rna_all[["statin_up"]], 
+         !term %in% list_upsetter_rna_all[["hymeglusin_down"]],
+         !term %in% list_upsetter_rna_all[["statin_down"]],
+         term %in% list_upsetter_rna_all[["hymeglusin_up"]],
+         term %in% list_upsetter_rna_all[["ampk_up"]],
+         !term %in% list_upsetter_rna_all[["ampk_down"]]) %>% 
+  drop_na(term) %>% 
+  pull(term) %>% 
+  unique()
+
+rna_AMPK_list = list(suhd_rna_AMPK = suhd_rna_AMPK, su_rna_AMPK = su_rna_AMPK, hd_rna_AMPK = hd_rna_AMPK, sdhu_rna_AMPK = sdhu_rna_AMPK, sd_rna_AMPK = sd_rna_AMPK, sdhd_rna_AMPK = sdhd_rna_AMPK, suhu_rna_AMPK = suhu_rna_AMPK, hu_rna_AMPK = hu_rna_AMPK)
+```
+
+#TMT breakdown lists
+```{r}
+
+##Statin v Hyme only
+#breakout statin up hyme down
+suhd_tmt_E <- df_upsetter %>% 
+  filter(term %in% list_upsetter_tmt[["statin_up"]], 
+         term %in% list_upsetter_tmt[["hymeglusin_down"]],
+         !term %in% list_upsetter_tmt[["statin_down"]],
+         !term %in% list_upsetter_tmt[["hymeglusin_up"]]) %>% 
+  drop_na(term) %>% 
+  pull(term) %>% 
+  unique()
+
+su_tmt_E <- df_upsetter %>% 
+  filter(term %in% list_upsetter_tmt[["statin_up"]], 
+         !term %in% list_upsetter_tmt[["hymeglusin_down"]],
+         !term %in% list_upsetter_tmt[["statin_down"]],
+         !term %in% list_upsetter_tmt[["hymeglusin_up"]]) %>% 
+  drop_na(term) %>% 
+  pull(term) %>% 
+  unique()
+hd_tmt_E <- df_upsetter %>% 
+  filter(!term %in% list_upsetter_tmt[["statin_up"]], 
+         term %in% list_upsetter_tmt[["hymeglusin_down"]],
+         !term %in% list_upsetter_tmt[["statin_down"]],
+         !term %in% list_upsetter_tmt[["hymeglusin_up"]]) %>% 
+  drop_na(term) %>% 
+  pull(term) %>% 
+  unique()
+
+#breakout statin down hyme up
+sdhu_tmt_E <- df_upsetter %>% 
+  filter(!term %in% list_upsetter_tmt[["statin_up"]], 
+         !term %in% list_upsetter_tmt[["hymeglusin_down"]],
+         term %in% list_upsetter_tmt[["statin_down"]],
+         term %in% list_upsetter_tmt[["hymeglusin_up"]]) %>% 
+  drop_na(term) %>% 
+  pull(term) %>% 
+  unique()
+
+sd_tmt_E <- df_upsetter %>% 
+  filter(!term %in% list_upsetter_tmt[["statin_up"]], 
+         !term %in% list_upsetter_tmt[["hymeglusin_down"]],
+         term %in% list_upsetter_tmt[["statin_down"]],
+         !term %in% list_upsetter_tmt[["hymeglusin_up"]]) %>% 
+  drop_na(term) %>% 
+  pull(term) %>% 
+  unique()
+
+hu_tmt_E <- df_upsetter %>% 
+  filter(!term %in% list_upsetter_tmt[["statin_up"]], 
+         !term %in% list_upsetter_tmt[["hymeglusin_down"]],
+         !term %in% list_upsetter_tmt[["statin_down"]],
+         term %in% list_upsetter_tmt[["hymeglusin_up"]]) %>% 
+  drop_na(term) %>% 
+  pull(term) %>% 
+  unique()
+
+sdhd_tmt_E <- df_upsetter %>% 
+  filter(!term %in% list_upsetter_tmt[["statin_up"]], 
+         term %in% list_upsetter_tmt[["hymeglusin_down"]],
+         term %in% list_upsetter_tmt[["statin_down"]],
+         !term %in% list_upsetter_tmt[["hymeglusin_up"]]) %>% 
+  drop_na(term) %>% 
+  pull(term) %>% 
+  unique()
+
+suhu_tmt_E <- df_upsetter %>% 
+  filter(term %in% list_upsetter_tmt[["statin_up"]], 
+         !term %in% list_upsetter_tmt[["hymeglusin_down"]],
+         !term %in% list_upsetter_tmt[["statin_down"]],
+         term %in% list_upsetter_tmt[["hymeglusin_up"]]) %>% 
+  drop_na(term) %>% 
+  pull(term) %>% 
+  unique()
+
+tmt_list = list(suhd_tmt_E = suhd_tmt_E, su_tmt_E = su_tmt_E, hd_tmt_E = hd_tmt_E, sdhu_tmt_E = sdhu_tmt_E, sd_tmt_E = sd_tmt_E, sdhd_tmt_E = sdhd_tmt_E, suhu_tmt_E = suhu_tmt_E, hu_tmt_E = hu_tmt_E)
+```
+
+
+
+

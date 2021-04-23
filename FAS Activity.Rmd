@@ -1,0 +1,71 @@
+---
+title: "in vitro FAS Activity"
+author: Alec Trub
+output: html_notebook
+---
+
+#Graphing the activity of purified FAS against concentration of HMG-CoA
+
+## Load libraries
+```{r}
+library(tidyverse) # for base packages
+library(readxl) # to read excel files; part of tidyverse, but not a core part, so need to load it separately
+library(janitor) # clean data
+library(viridis) # For awesome, accessible color palettes
+library(ggrepel) #for smart ggplot labels
+library(broom) #for stats
+library(cowplot)
+```
+
+##Load data set containing proteins and statistical information. Clean up extra rows
+```{r}
+df <- read_excel("data/data.xlsx",col_names = TRUE)%>%
+  remove_empty(c("rows", "cols"))
+
+```
+
+
+#Gather and set up for graph
+```{r}
+#Full data
+df_graph = df %>% 
+  gather(key = "HMG",value = "Activity",-1)
+
+df_graph = df_graph %>% 
+  filter(!is.na(Activity))
+
+df_graph$HMG = as.numeric(df_graph$HMG, levels = c("0","0.4","1","4","5","10","20","40","80","100","120","200","320","400","480","500","1000"))
+```
+
+#Graph
+```{r}
+#Raw data
+FASactivity = ggplot(df_graph)+
+  geom_point(aes(x = HMG, y = Activity))+
+  geom_smooth(aes(x = HMG, y = Activity), method = "loess")+
+  scale_y_continuous(labels = scales::percent)+
+  theme_cowplot()+
+  labs(y = "% Activity", x = expression(paste("[HMG]"," (", mu, "M)")), title = "")+
+  geom_hline(aes(yintercept = 0))+
+  geom_vline(aes(xintercept = 0))+
+  theme(axis.text = element_text(size = 20, face = "bold"), axis.title = element_text(size = 20, face = "bold"))
+
+ggsave("ActivityVConcentration.tiff", width = 10, height = 8)
+ 
+
+#Log graph
+df_log_graph = df_graph %>% 
+  filter(HMG != 0) %>% 
+  mutate(LogHMG = log10(HMG))
+
+ggplot(df_log_graph)+
+  geom_point(aes(x = LogHMG, y = Activity))+
+  geom_smooth(aes(x = LogHMG, y = Activity), method = "auto")+
+  theme_minimal() + 
+  labs(y = "% Activity", x = expression(paste("Log[HMG]"," (", mu, "M)")), title = "")+
+  geom_hline(aes(yintercept = 0))+
+  geom_vline(aes(xintercept = 0))
+
+```
+
+

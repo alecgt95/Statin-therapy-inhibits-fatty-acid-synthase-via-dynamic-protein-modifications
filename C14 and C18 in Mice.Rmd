@@ -1,0 +1,75 @@
+---
+title: "Myristate and Sterate in statin Tx Mice"
+author: Alec Trub
+output: html_notebook
+---
+
+## Load libraries
+```{r}
+library(tidyverse) # for base packages
+library(readxl) # to read excel files; part of tidyverse, but not a core part, so need to load it separately
+library(janitor) # clean data
+library(viridis) # For awesome, accessible color palettes
+library(ggrepel) #for smart ggplot labels
+library(broom) #for stats
+library(cowplot)
+```
+
+##Load data set containing calculated values
+```{r}
+df <- read_excel("data/DNL20190426.xlsx",col_names = TRUE)%>%
+  remove_empty(c("rows", "cols"))
+
+#Add treament and gather
+colnames(df)[1] = "Treatment"
+
+df = df%>%
+  gather(key = "Lipid", value = "Percentage", -1)
+```
+
+##Graph
+```{r}
+#Set Factors/cat/num
+df$Treatment = factor(df$Treatment, levels = c("Control","Statin"))
+
+
+#Graph DNL by Tx/lipid
+DNLMouse = ggplot(df)+
+  geom_boxplot(aes(x = Lipid,y = `Percentage`, fill = Treatment))+
+  theme_cowplot()+
+  scale_fill_viridis(discrete = T)+
+  guides(guide_legend(reverse = T))+
+  labs(y = "% labeled lipid")+
+  theme(axis.text = element_text(size = 15, face = "bold"), legend.position = "bottom", axis.title = element_text(size = 15, face = "bold"), legend.text = element_text(size = 15), legend.title = element_text(size = 15, face = "bold"))
+  
+
+  
+
+ggsave(plot = DNLMouse, "DNLMouseC14.tiff", width = 9, height = 7)
+```
+
+#stats
+```{r}
+
+p_df <- df %>%
+  group_by(Lipid) %>% 
+  nest() %>% #Nest all non-grouping columns into list-frames
+  mutate(t_test = map(data, ~tidy(aov(Percentage ~ Treatment, data = .x)))) %>% 
+  unnest(t_test) %>%  
+  select(one_of(c("Lipid", "p.value"))) %>% 
+  arrange(p.value) %>% 
+  drop_na()
+
+ 
+
+t_df <- df %>%
+  group_by(Lipid) %>% 
+  nest() %>% 
+  mutate(t_test = map(data, ~tidy(TukeyHSD(aov(Percentage ~ Treatment, data = .x))))) %>%
+  unnest(t_test) %>%  
+  select(one_of(c("Lipid","contrast", "adj.p.value"))) %>% 
+  arrange(adj.p.value)
+
+write_csv(p_df,"export/StatinCellANOVA.csv")#write_csv(t_df,"export/StatinCellHSD.csv")
+
+```

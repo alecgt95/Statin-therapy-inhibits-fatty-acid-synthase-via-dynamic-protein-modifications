@@ -1,0 +1,102 @@
+---
+title: "Generate Pathway lists via EnrichR"
+author: Alec Trub and Matthew Hirschey, Ph.D.
+output: html_notebook
+---
+
+#This code uses the output from "Lists" to look for enriched pathways for each omic broken out by treatment and upward or downward changes.
+```{r}
+library(tidyverse)
+library(here)
+library(readxl)
+library(janitor)
+library(cowplot)
+library(viridis)
+library(ggrepel)
+library(enrichR)
+library(rmarkdown)
+library(knitr)
+library(pander)
+## install BiocManager if not installed
+# if (!requireNamespace("BiocManager", quietly = TRUE))
+#     install.packages("BiocManager")
+# ## install mixOmics
+# BiocManager::install('mixOmics')
+#devtools::install_github("hirscheylab/proteins")
+library(plotly)
+library(UpSetR)
+
+
+```
+
+#Import
+```{r}
+#Must run lists.Rmd before hand to generate df
+#list of dfs
+datalist = list(statin_up_protein = statin_up, statin_down_protein = statin_down, 
+            hymeglusin_up_protein = hymeglusin_up, hymeglusin_down_protein = hymeglusin_down,
+            ampk_up_protein = metformin_up, ampk_down_protein = metformin_down,
+            fasi_up_protein = FASi_up, fasi_down_protein = FASi_down,    
+            statin_up_rna = statin_up_rna, statin_down_rna =  statin_down_rna,
+            hymeglusin_up_rna = hymeglusin_up_rna, hymeglusin_down_rna = hymeglusin_down_rna,
+            ampk_up_rna = AICAR_up_rna, ampk_down_rna = AICAR_down_rna,
+            fasi_up_rna = C75_up_rna, fasi_down_rna = C75_down_rna,
+            statin_up_tmt = statin_up_tmt, statin_down_tmt = statin_down_tmt,
+            hymeglusin_up_tmt = hymeglusin_up_tmt, hymeglusin_down_tmt = hymeglusin_down_tmt)
+```
+
+#Enricher setup
+```{r}
+dbs <- listEnrichrDbs()
+
+dbs = c("GO_Molecular_Function_2018","GO_Biological_Process_2018", "GO_Cellular_Component_2018")
+
+
+#pathway enrichment analysis loop function
+enrichr_loop <- function(gene_list, databases = database_list){
+  if(is_empty(gene_list)){
+    flat_complete <- NULL
+  } else {
+    flat_complete <- as_tibble()
+    enriched <- enrichr(gene_list, databases) %>% 
+      keep(~ nrow(.x) != 0) #added this to filter out lists with zero rows, which throws error below
+    flat_complete <- bind_rows(enriched, .id = "enrichr")
+    flat_complete <- flat_complete %>% 
+      arrange(Adjusted.P.value) 
+    flat_complete$enrichr <- str_replace_all(flat_complete$enrichr, "\\_", " ")
+    flat_complete$Term <- str_replace_all(flat_complete$Term, "\\_", " ")
+  }
+  return(flat_complete)
+}
+
+```
+
+
+```{r}
+#Create loop for each list 
+master_list = tibble()
+
+
+for(l in 1:20){
+  enriched <- enrichr_loop(unlist(datalist[l]), dbs)
+  enriched = data.frame(enriched) %>% 
+    mutate(set = names(datalist)[l]) %>% 
+    select(set, everything())
+  
+master_list <- master_list %>% 
+  bind_rows(enriched)
+}
+
+
+```
+
+
+
+
+
+```
+
+
+  
+
+
